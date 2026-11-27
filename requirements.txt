@@ -1,0 +1,12 @@
+langchain
+langgraph
+pydantic
+python-dotenv
+ddgs
+
+# LLM providers (install all so you can switch freely)
+langchain-groq
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+langchain-ollama
