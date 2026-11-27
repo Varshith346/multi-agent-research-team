@@ -1,7 +1,4 @@
-"""Run the research team from the terminal:
-
-    python main.py "How do electric car batteries work?"
-"""
+"""Usage: python main.py "your topic""""
 import os
 import re
 import sys

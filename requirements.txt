@@ -4,7 +4,7 @@ pydantic
 python-dotenv
 ddgs
 
-# LLM providers (install all so you can switch freely)
+# providers
 langchain-groq
 langchain-openai
 langchain-google-genai

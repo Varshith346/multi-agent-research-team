@@ -1,12 +1,4 @@
-"""The multi-agent research team as a LangGraph state machine.
-
-    START -> planner -> researcher -> writer -> critic --approved?--> END
-                                        ^                  |
-                                        └──── needs work ──┘   (max MAX_REVISIONS loops)
-
-Each agent is just a Python function (a "node") that reads the shared state
-and returns the parts of the state it wants to update.
-"""
+"""Research workflow: planner -> researcher -> writer -> critic, looping back to the writer until approved."""
 from typing import TypedDict
 
 from pydantic import BaseModel, Field
@@ -18,21 +10,17 @@ from search import web_search
 MAX_REVISIONS = 2
 
 
-# ---------- Shared state: the "whiteboard" every agent reads and writes ----------
-
 class ResearchState(TypedDict, total=False):
     topic: str
-    questions: list[str]   # planner's sub-questions
-    notes: str             # researcher's findings
-    sources: list[str]     # URLs used
-    draft: str             # writer's report
-    feedback: str          # critic's comments
-    score: int             # critic's score (1-10)
+    questions: list[str]
+    notes: str
+    sources: list[str]
+    draft: str
+    feedback: str
+    score: int
     approved: bool
     revisions: int
 
-
-# ---------- Pydantic schemas for structured hand-offs ----------
 
 class Plan(BaseModel):
     questions: list[str] = Field(description="3-5 focused research questions that together cover the topic")
@@ -44,23 +32,19 @@ class Review(BaseModel):
     feedback: str = Field(description="Specific, actionable improvements. Empty if approved.")
 
 
-# ---------- Agents (nodes) ----------
-
 def planner(state: ResearchState) -> dict:
-    """Breaks the topic into research questions."""
-    print("🧭 Planner: breaking the topic into questions...")
+    print("[planner] creating research plan")
     plan = get_llm().with_structured_output(Plan).invoke(
         f"You are a research planner. Topic: '{state['topic']}'.\n"
         "Write 3-5 specific questions that a researcher should answer to write a solid report on it."
     )
     for q in plan.questions:
-        print(f"   • {q}")
+        print(f"  - {q}")
     return {"questions": plan.questions, "revisions": 0}
 
 
 def researcher(state: ResearchState) -> dict:
-    """Searches the web for every question and summarises what it finds."""
-    print("🔎 Researcher: searching the web...")
+    print("[researcher] searching")
     llm = get_llm()
     notes, sources = [], []
     for q in state["questions"]:
@@ -73,14 +57,13 @@ def researcher(state: ResearchState) -> dict:
             "Only use the search results; say if they don't answer it."
         ).content
         notes.append(f"### {q}\n{summary}")
-        print(f"   ✓ {q}")
+        print(f"  done: {q}")
     return {"notes": "\n\n".join(notes), "sources": list(dict.fromkeys(sources))}
 
 
 def writer(state: ResearchState) -> dict:
-    """Writes (or rewrites) the report from the notes and any critic feedback."""
     revision = state.get("revisions", 0)
-    print(f"✍️  Writer: {'writing' if revision == 0 else f'revising (round {revision})'} the report...")
+    print(f"[writer] draft {revision + 1}")
     feedback = ""
     if state.get("feedback"):
         feedback = f"\n\nYour previous draft:\n{state['draft']}\n\nEditor feedback to fix:\n{state['feedback']}"
@@ -94,8 +77,7 @@ def writer(state: ResearchState) -> dict:
 
 
 def critic(state: ResearchState) -> dict:
-    """Reviews the draft like a strict editor."""
-    print("🧐 Critic: reviewing the draft...")
+    print("[critic] reviewing")
     review = get_llm().with_structured_output(Review).invoke(
         "You are a strict editor. Review this report against the research notes. "
         "Check accuracy (no claims beyond the notes), structure, clarity and completeness. "
@@ -103,11 +85,9 @@ def critic(state: ResearchState) -> dict:
         f"NOTES:\n{state['notes']}\n\nREPORT:\n{state['draft']}"
     )
     approved = review.approved and review.score >= 8
-    print(f"   score {review.score}/10 → {'approved ✅' if approved else 'needs work 🔁'}")
+    print(f"  score {review.score}/10, {'approved' if approved else 'revising'}")
     return {"score": review.score, "approved": approved, "feedback": review.feedback}
 
-
-# ---------- Routing: the conditional edge that makes the loop ----------
 
 def after_critic(state: ResearchState) -> str:
     if state["approved"] or state["revisions"] > MAX_REVISIONS:
